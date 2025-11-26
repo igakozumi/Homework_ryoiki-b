@@ -1,1 +1,4 @@
-/Git-2.51.2-64-bit.exe
+yolo*.pt
+__pycache__/
+runs/
+debug/
