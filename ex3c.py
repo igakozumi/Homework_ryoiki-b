@@ -20,6 +20,10 @@ bones = [
     (12, 14), (14, 16)
 ]
 
+# 前フレームのキーポイントを保存
+keypoints1 = None
+keypoints2 = None
+
 def hip(keypoints):
      lx, ly = keypoints[11]
      rx, ry = keypoints[12]
@@ -37,17 +41,33 @@ while True:
     success1, frame1 = cap1.read()
     success2, frame2 = cap2.read()
 
-    # どちらかが終わったら、終わった側は黒フレーム（サイズ合わせ）にする
+    if not success1 and not success2:
+        break  # 両方終了したら終わり
+
+    # 黒画像を生成
     if not success1:
-        frame1 = np.zeros_like(frame2)
+        frame1 = np.zeros((frame2.shape[0], frame2.shape[1], 3), dtype=np.uint8)
     if not success2:
-        frame2 = np.zeros_like(frame1)
+        frame2 = np.zeros((frame1.shape[0], frame1.shape[1], 3), dtype=np.uint8)
+
 
     results1 = model(frame1)
     results2 = model(frame2)
 
-    keypoints1 = results1[0].keypoints.xy[0].cpu().numpy()  # (17, 3)
-    keypoints2 = results2[0].keypoints.xy[0].cpu().numpy()  # (17, 3)
+
+    #検出成功したら更新、失敗したら前のキーポイントを使用
+    if results1[0].keypoints is not None and results1[0].keypoints.xy.numel() > 0:
+        keypoints1 = results1[0].keypoints.xy[0].cpu().numpy()
+    # 検出失敗
+    if results2[0].keypoints is not None and results2[0].keypoints.xy.numel() > 0:
+        keypoints2 = results2[0].keypoints.xy[0].cpu().numpy()
+
+    #どっちも無かったら描画できないのでスキップ
+    if keypoints1 is None and keypoints2 is None:
+        cv2.imshow("ex3b", black)
+        if cv2.waitKey(20) == 27:
+            break
+        continue
 
     people1_x, people1_y = hip(keypoints1)
     people2_x, people2_y = hip(keypoints2)
@@ -62,29 +82,21 @@ while True:
     #背景変更
     black = np.zeros_like(frame1)
 
-    # キーポイント描画
-
-    for i, (x, y) in enumerate(keypoints1):
-        if i >= 5:
-            cv2.circle(black, (int(x), int(y)), 4, (0, 255, 255), -1)
-    
-    for i, (x, y) in enumerate(keypoints2_shifted):
+    # 描画関数
+    def draw_skeleton(keypoints, color):
+        for i, (x, y) in enumerate(keypoints):
             if i >= 5:
                 cv2.circle(black, (int(x), int(y)), 4, (0, 255, 255), -1)
+        for a, b in bones:
+            x1, y1 = keypoints[a]
+            x2, y2 = keypoints[b]
+            cv2.line(black, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
 
 
-    # ボーン描画
-    for (a, b) in bones:
-            x1, y1 = keypoints1[a][0] ,keypoints1[a][1]
-            x2, y2 = keypoints1[b][0] ,keypoints1[b][1]
-            cv2.line(black, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-
-    for (a, b) in bones:
-            x1, y1 = keypoints2_shifted[a][0] ,keypoints2_shifted[a][1]
-            x2, y2 = keypoints2_shifted[b][0] ,keypoints2_shifted[b][1]
-            cv2.line(black, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-
-   
+    if keypoints1 is not None:
+        draw_skeleton(keypoints1, (0, 0, 255))  # 赤
+    if keypoints2_shifted is not None:
+        draw_skeleton(keypoints2_shifted, (255, 0, 0))  # 青
 
     cv2.imshow("ex3c", black)
 
