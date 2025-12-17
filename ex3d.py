@@ -57,71 +57,83 @@ while True:
 cap1.release()
 cap2.release()
 
-# 欠損は除外してDTWへ
+# 欠損除外
 A = [k for k in key_list1 if k is not None]
 B = [k for k in key_list2 if k is not None]
 
 def pose_dist(a, b):
-    return np.linalg.norm(a - b)
+    return np.linalg.norm(a - b) / a.shape[0]
 
-# 距離行列
-dist = [[pose_dist(a, b) for b in B] for a in A]
+distance, path = fastdtw(A, B, dist=pose_dist)
 
-# DTW実行
-disance, path = fastdtw(A, B, dist=euclidean)
+path_dict={}
+for i,j in path:
+    if i not in path_dict:
+        path_dict[i]=j
 
-print(path)
+print(path_dict)
+new_path=[]
 
-idxA = alignment.index1
-idxB = alignment.index2
+print(path_dict)
+for i in range(len(A)):
+    new_path.append((i,path_dict[i]))
+
 
 ############################################
 # ★ 再読み込みして同期表示フェーズへ
 ############################################
 cap1 = cv2.VideoCapture(video_path1)
-cap2 = cv2.VideoCapture(video_path2)
-
-frame_count = 0
+# Note: cap2は直接フレームを読み出すのではなく、保存したリストBからデータを取得します
 
 def draw_skeleton(img, keypoints, color):
+    # keypointsがNoneの場合はスキップ
+    if keypoints is None: return
     for i, (x, y) in enumerate(keypoints):
-        if i >= 5:
+        if i >= 5: # 顔以外の主要関節
             cv2.circle(img, (int(x), int(y)), 4, color, -1)
     for a, b in bones:
         x1, y1 = keypoints[a]
         x2, y2 = keypoints[b]
-        cv2.line(img, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+        if (x1, y1) != (0, 0) and (x2, y2) != (0, 0): # 座標が存在する場合
+            cv2.line(img, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
 
-while True:
+# new_path は [(0, j0), (1, j1), (2, j2), ...] という形式
+for i, j in new_path:
     ret1, frame1 = cap1.read()
-    if not ret1 or frame_count >= len(idxA):
+    if not ret1:
         break
 
-    k1 = A[idxA[frame_count]]
-    k2 = B[idxB[frame_count]]
+    # A[i] は現在のVideo 1の姿勢、B[j] はDTWで対応付けられたVideo 2の姿勢
+    k1 = A[i]
+    k2 = B[j]
 
-    people1_x, people1_y = hip(k1)
-    people2_x, people2_y = hip(k2)
+    # ヒップ位置（重心）を取得して位置を合わせる（オーバーレイ用）
+    p1_x, p1_y = hip(k1)
+    p2_x, p2_y = hip(k2)
 
-    dx = people1_x - people2_x
-    dy = people1_y - people2_y
+    dx = p1_x - p2_x
+    dy = p1_y - p2_y
 
     k2_shift = k2.copy()
     k2_shift[:, 0] += dx
     k2_shift[:, 1] += dy
 
-    black = np.zeros_like(frame1)
+    # 黒背景のキャンバス、またはframe1をコピー
+    canvas = np.zeros_like(frame1)
+    # もし実際の映像の上に重ねたい場合は canvas = frame1.copy() に変更してください
 
-    draw_skeleton(black, k1, (0, 0, 255))  # 赤
-    draw_skeleton(black, k2_shift, (255, 0, 0))  # 青
+    # スケルトン描画
+    draw_skeleton(canvas, k1, (0, 0, 255))      # 赤: Video 1
+    draw_skeleton(canvas, k2_shift, (255, 0, 0)) # 青: Video 2 (同期)
 
-    cv2.imshow("ex3c_dtw", black)
+    # テキストでフレーム番号を表示（デバッグ用）
+    cv2.putText(canvas, f"V1 Frame: {i} <-> V2 Frame: {j}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    if cv2.waitKey(20) == 27:
+    cv2.imshow("DTW Synchronized Pose", canvas)
+
+    if cv2.waitKey(30) == 27: # ESCキーで終了
         break
 
-    frame_count += 1
-
 cap1.release()
-cap2.release()
 cv2.destroyAllWindows()
